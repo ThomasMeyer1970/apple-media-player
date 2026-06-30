@@ -104,6 +104,26 @@ export async function getMusicAssistantConfigEntryId(hass) {
   }
 }
 
+// NOTE (custom patch): getMusicAssistantConfigEntryId() above only checks whether a
+// music_assistant config entry exists ANYWHERE in this HA instance. It does not check
+// whether the entity we are actually searching against is itself a Music Assistant
+// player. That meant any non-MA entity (e.g. a custom integration like apple_music)
+// would still be routed through MA's global library search whenever MA happened to be
+// configured for other players. This wrapper adds that missing per-entity check before
+// resolving the MA config entry, so non-MA entities correctly fall through to their own
+// native media_player.search_media implementation instead.
+// Assumption: entityId reflects the entity actually being searched (searchEntityId in
+// yet-another-media-player.js), already resolved from music_assistant_entity/entity_id.
+// Edge case: if entityId is missing/unknown (hass.states has no entry for it), we treat
+// it as "not Music Assistant" and skip the MA path rather than guessing.
+export async function getMusicAssistantConfigEntryIdForEntity(hass, entityId) {
+  const state = entityId ? hass?.states?.[entityId] : null;
+  if (!state || !isMusicAssistantEntity(state)) {
+    return null;
+  }
+  return getMusicAssistantConfigEntryId(hass);
+}
+
 let cachedMassQueueEntryId = null;
 let cachedMassQueueEntryTs = 0;
 
@@ -718,8 +738,8 @@ export async function searchMedia(
   searchParams = {},
   searchResultsLimit = 20
 ) {
-  const configEntryId = await getMusicAssistantConfigEntryId(hass);
-  // Try Music Assistant search if we have a config entry
+  const configEntryId = await getMusicAssistantConfigEntryIdForEntity(hass, entityId);
+  // Try Music Assistant search if we have a config entry AND entityId is actually an MA entity
   if (configEntryId) {
     try {
       // If favorites are requested, use Music Assistant get_library with favorite + search
@@ -895,7 +915,7 @@ export async function getRecentlyPlayed(
   searchResultsLimit = 20,
   options = {}
 ) {
-  const configEntryId = await getMusicAssistantConfigEntryId(hass);
+  const configEntryId = await getMusicAssistantConfigEntryIdForEntity(hass, entityId);
   if (!configEntryId) {
     return { results: [], usedMusicAssistant: false };
   }
@@ -956,7 +976,7 @@ export async function getFavorites(
   searchResultsLimit = 20,
   options = {}
 ) {
-  const configEntryId = await getMusicAssistantConfigEntryId(hass);
+  const configEntryId = await getMusicAssistantConfigEntryIdForEntity(hass, entityId);
   if (!configEntryId) {
     return { results: [], usedMusicAssistant: false };
   }
