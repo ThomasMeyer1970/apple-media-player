@@ -104,6 +104,20 @@ export async function getMusicAssistantConfigEntryId(hass) {
   }
 }
 
+// Custom patch: getMusicAssistantConfigEntryId() only checks whether a music_assistant
+// config entry exists ANYWHERE in this HA instance. It does not verify whether the entity
+// being searched is itself a Music Assistant player. This wrapper adds that missing
+// per-entity check so non-MA entities (e.g. apple_music custom integration) correctly
+// fall through to their own native media_player.search_media instead of being routed
+// through MA's global library search.
+export async function getMusicAssistantConfigEntryIdForEntity(hass, entityId) {
+  const state = entityId ? hass?.states?.[entityId] : null;
+  if (!state || !isMusicAssistantEntity(state)) {
+    return null;
+  }
+  return getMusicAssistantConfigEntryId(hass);
+}
+
 let cachedMassQueueEntryId = null;
 let cachedMassQueueEntryTs = 0;
 
@@ -748,8 +762,8 @@ export async function searchMedia(
   searchParams = {},
   searchResultsLimit = 20
 ) {
-  const configEntryId = await getMusicAssistantConfigEntryId(hass);
-  // Try Music Assistant search if we have a config entry
+  const configEntryId = await getMusicAssistantConfigEntryIdForEntity(hass, entityId);
+  // Try Music Assistant search if we have a config entry AND entityId is actually an MA entity
   if (configEntryId) {
     try {
       // If favorites are requested, use Music Assistant get_library with favorite + search
@@ -925,7 +939,7 @@ export async function getRecentlyPlayed(
   searchResultsLimit = 20,
   options = {}
 ) {
-  const configEntryId = await getMusicAssistantConfigEntryId(hass);
+  const configEntryId = await getMusicAssistantConfigEntryIdForEntity(hass, entityId);
   if (!configEntryId) {
     return { results: [], usedMusicAssistant: false };
   }
@@ -986,7 +1000,7 @@ export async function getFavorites(
   searchResultsLimit = 20,
   options = {}
 ) {
-  const configEntryId = await getMusicAssistantConfigEntryId(hass);
+  const configEntryId = await getMusicAssistantConfigEntryIdForEntity(hass, entityId);
   if (!configEntryId) {
     return { results: [], usedMusicAssistant: false };
   }
